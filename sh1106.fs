@@ -26,11 +26,19 @@
 
 : display ( -- )  \ update the oled from display memory
 
-   $21 lcd!c 0 lcd!c 127 lcd!c $22 lcd!c 0 lcd!c 7 lcd!c
+\   $21 lcd!c 0 lcd!c 127 lcd!c \ columnaddr
+\  $22 lcd!c 0 lcd!c 7 lcd!c \ pageaddr
 
-  lcdmem  16 0 do  \ send as a number of 64-byte data messages
-    $3C i2c-addr $40 >i2c 
-    64 0 do  dup c@ >i2c  1+ loop
+\  $40 lcd!c \ setstartline 0
+   
+  lcdmem  8 0 do  \ send as a number of 16-byte data messages
+    $B0 I + lcd!c
+    $3C i2c-addr $40 >i2c \ start  transmission
+    0 >i2c 
+    0 >i2c 
+    128 0 do  dup c@ >i2c  1+ loop
+    0 >i2c 
+    0 >i2c 
     0 i2c-xfer drop
   loop drop ;
 
@@ -116,35 +124,41 @@ decimal
 
 : lcd-init ( -- )  \ initialise the oled display
   i2c-init
-  $AE lcd!c  \ DISPLAYOFF
-  $A8 lcd!c  \ SETMULTIPLEX
-   63 lcd!c
-  $D3 lcd!c  \ SETDISPLAYOFFSET
-    0 lcd!c
-  $40 lcd!c  \ SETSTARTLINE
-  $20 lcd!c  \ MEMORYMODE
+  $AE lcd!c  \ DISPLAYOFF \ ok
+\  $A6 lcd!c  \ NORMALDISPLAY \ ok
+  $D5 lcd!c  \ SETDISPLAYCLOCKDIV \ ok
+  $80 lcd!c  \ ok
+  $A8 lcd!c  \ SETMULTIPLEX \ ok
+  $3F lcd!c  \ 0x3f ok 
+  $D3 lcd!c  \ SETDISPLAYOFFSET \ ok
+  $00 lcd!c  \ ok
+  $40 lcd!c  \ SETSTARTLINE \ ok
+  $8D lcd!c  \ CHARGEPUMP \ ok
+  $14 lcd!c  \ ok
+  $20 lcd!c  \ MEMORYMODE \ ok
+  $00 lcd!c  \ ok
+  $A1 lcd!c  \ SEGREMAP | 0x1 \ ok
+  $C8 lcd!c  \ COMSCANDEC \ ok
+  $DA lcd!c  \ SETCOMPINS \ ok
+  $12 lcd!c  \ ok
+  $81 lcd!c  \ SETCONTRAST \ ok
+  $CF lcd!c  \ ok
+  $D9 lcd!c  \ SETPRECHARGE \ ok
+  $F1 lcd!c  \ ok
+  $DB lcd!c  \ SETVCOMDETECT \ ok
+  $40 lcd!c  \ ok
+  $A4 lcd!c  \ DISPLAYALLON_RESUME \ ok
+  $A6 lcd!c  \ NORMALDISPLAY \ ok
+  $2E lcd!c  \ STOP SCROLL \ ok
+\ set lowcolumn $00
   $00 lcd!c
-  $21 lcd!c  \ SET COL ADDR
-    0 lcd!c  \ COL START
-  127 lcd!c  \ COL END
-  $A1 lcd!c  \ SEGREMAP | 0x1
-  $C8 lcd!c  \ COMSCANDEC
-  $DA lcd!c  \ SETCOMPINS
-  $12 lcd!c
-  $81 lcd!c  \ SETCONTRAST
-  $CF lcd!c
-  $D9 lcd!c  \ SETPRECHARGE
-  $F1 lcd!c
-  $DB lcd!c  \ SETVCOMDETECT
-  $40 lcd!c
-  $2E lcd!c  \ STOP SCROLL
-  $D5 lcd!c  \ SETDISPLAYCLOCKDIV
-  $80 lcd!c
-  $8D lcd!c  \ CHARGEPUMP
-  $14 lcd!c  \ switched capacitor
-  $A4 lcd!c  \ DISPLAYALLON_RESUME
-  $A6 lcd!c  \ NORMALDISPLAY
-  $AF lcd!c  \ DISPLAYON
+  $10 lcd!c
+  $00 lcd!c
+\ set highcolumn $10
+  $10 lcd!c
+  $b0 lcd!c
+  $c8 lcd!c
+  $AF lcd!c  \ DISPLAYON \ ok
 ;
 
 \ lcd-init show-logo

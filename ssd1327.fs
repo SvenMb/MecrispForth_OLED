@@ -1,38 +1,62 @@
-\ interface to 128x64 OLED
+\ interface to 128x128 ssd1327 OLED
 \ uses i2c
 
-[ifndef] OLED.LARGE  1 constant OLED.LARGE  [then]  \ 0 = 128x32, 1 = 128x64
+$3c constant ssd1327
 
+\ 
 : lcd? ( -- f )  \ probe whether device exists, return true if it does
-  $3C i2c-addr 0 i2c-xfer 0= ;
+  ssd1327 i2c-addr 0 i2c-xfer 0= ;
 
 : lcd!c ( v -- )  \ send a command to the lcd
-  $3C i2c-addr  $80 >i2c >i2c  0 i2c-xfer drop ;
+  ssd1327 i2c-addr  $80 >i2c >i2c  0 i2c-xfer drop ;
 
-\ the oled's display memory buffer is set up as 4 or 8 rows of 128 bytes
-\ each byte is 8 pixels down, from b0 at the top to b7 at the bottom
-
-1024 buffer: lcdmem
+\ the oled's display memory each byte is 2 pixel, 128x128 pixel
+8192 buffer: lcdmem
 
 \ clear, putpixel, and display are used by the graphics.fs code
-
 : clear ( -- )  \ clear display memory
-  lcdmem 1024 0 fill ;
+  lcdmem 8192 0 fill ;
 
+: lcdfill ( c - ) \ fills all with 1
+  lcdmem 8192 rot fill
+;
+
+\ greyscale g is $0 - $f
+: putpixelg ( g x y -- )  \ set a pixel in display memory with greyscale info
+  6 lshift swap \ y is 64 times 
+  dup shr
+  rot + lcdmem +
+  swap 1 and 
+  0= if
+    dup c@ rot $0f and or swap c!
+  else
+    dup c@ rot $0f and 4 lshift or swap c!
+  then
+;
+
+
+\
 : putpixel ( x y -- )  \ set a pixel in display memory
-  OLED.LARGE 0= if 2* 1+ then
-  1 over 7 and lshift ( x y bit ) -rot
-  3 rshift 7 lshift + lcdmem + cbis! ;
+  6 lshift swap \ y is 64 times 
+  dup shr
+  rot + lcdmem +
+  swap 1 and 
+  0= if
+    dup c@ $F0 or swap c!
+  else
+    dup c@ $0F or swap c!
+  then
+;
 
 : display ( -- )  \ update the oled from display memory
 
-   $21 lcd!c 0 lcd!c 127 lcd!c $22 lcd!c 0 lcd!c 7 lcd!c
-
-  lcdmem  16 0 do  \ send as a number of 64-byte data messages
-    $3C i2c-addr $40 >i2c 
-    64 0 do  dup c@ >i2c  1+ loop
-    0 i2c-xfer drop
-  loop drop ;
+  $15 lcd!c $00 lcd!c $7F lcd!c \ SET_COL_ADDR, ((128 - self.width) // 4), 63 - ((128 - self.width) // 4),
+  $75 lcd!c $00 lcd!c $7f lcd!c \ SET_ROW_ADDR, 0x00, self.height - 1,
+   
+   ssd1327 i2c-addr $40 >i2c \ start  transmission
+  lcdmem 
+    8192 0 do  dup c@ >i2c  1+ loop
+    0 i2c-xfer drop drop ;
 
 create logo  \ 64x64 pixels
 binary
@@ -104,47 +128,77 @@ decimal
 
 : show-logo ( -- )  \ show the JeeLabs logo
   clear
-  logo  OLED.LARGE 1+ 32 * 0 do
+  logo   64 0 do
     64 0 do
       dup i 5 rshift cells + @
       i not $1F and rshift
-      1 and if i 32 + j putpixel then
+      1 and if i 32 + j 32 + putpixel then
     loop
     8 +
   loop
   drop display ;
 
+: lcd-init2 ( -- )  \ initialise the oled display
+  i2c-init
+  $ae lcd!c           \ SET_DISP, # $ae Display off, $af display on
+  $15 lcd!c $00 lcd!c $7f lcd!c \ SET_COL_ADDR, ((128 - self.width) // 4), 63 - ((128 - self.width) // 4), (?)
+  $75 lcd!c $00 lcd!c $7f lcd!c \ SET_ROW_ADDR, 0x00, self.height - 1, (?)
+  $81 lcd!c $80 lcd!c \ SET_CONTRAST, 0x7f, # Medium brightness
+  $a0 lcd!c $51 lcd!c \ SET_SEG_REMAP, $51,
+  $a1 lcd!c $00 lcd!c \ SET_DISP_START_LINE, $00,
+  $a2 lcd!c $00 lcd!c \ SET_DISP_OFFSET, $20, # Set vertical offset by COM from 0~127 (!)changed
+  $a4 lcd!c           \ SET_DISP_MODE, # Normal, not inverted $a4, inverted $a7, all off $a6, all on $a5 
+  $a8 lcd!c $7f lcd!c \ SET_MUX_RATIO, self.height - 1,
+  $b1 lcd!c $f1 lcd!c \ SET_PHASE_LEN, 0x51, # Phase 1: 1 DCLK, Phase 2: 5 DCLKs
+  $b3 lcd!c $00 lcd!c \ SET_DISP_CLK_DIV, 0x01, # Divide ratio: 1, Oscillator Frequency: 0
+  $ab lcd!c $01 lcd!c \ SET_FN_SELECT_A, $01, # Enable internal VDD regulator
+  $b6 lcd!c $0f lcd!c \ SET_SECOND_PRECHARGE, 0x01, # Second Pre-charge period: 1 DCLK
+  $be lcd!c $0f lcd!c \ SET_VCOM_DESEL, 0x07, # Set VCOMH COM deselect voltage level: 0.86*Vcc
+  $bc lcd!c $08 lcd!c \ SET_PRECHARGE, 0x08, # Set pre-charge voltage level: VCOMH
+  $d5 lcd!c $62 lcd!c \ SET_FN_SELECT_B, 0x62, # Enable enternal VSL, Enable second precharge
+  $fd lcd!c $12 lcd!c \ SET_COMMAND_LOCK, $12, # Unlock
+  $af lcd!c           \ SET_DISP | 0x01): # Display on
+ ;
+
+  
+  
 : lcd-init ( -- )  \ initialise the oled display
   i2c-init
-  $AE lcd!c  \ DISPLAYOFF
-  $A8 lcd!c  \ SETMULTIPLEX
-   63 lcd!c
-  $D3 lcd!c  \ SETDISPLAYOFFSET
-    0 lcd!c
-  $40 lcd!c  \ SETSTARTLINE
-  $20 lcd!c  \ MEMORYMODE
-  $00 lcd!c
-  $21 lcd!c  \ SET COL ADDR
-    0 lcd!c  \ COL START
-  127 lcd!c  \ COL END
-  $A1 lcd!c  \ SEGREMAP | 0x1
-  $C8 lcd!c  \ COMSCANDEC
-  $DA lcd!c  \ SETCOMPINS
-  $12 lcd!c
-  $81 lcd!c  \ SETCONTRAST
-  $CF lcd!c
-  $D9 lcd!c  \ SETPRECHARGE
-  $F1 lcd!c
-  $DB lcd!c  \ SETVCOMDETECT
-  $40 lcd!c
-  $2E lcd!c  \ STOP SCROLL
-  $D5 lcd!c  \ SETDISPLAYCLOCKDIV
-  $80 lcd!c
-  $8D lcd!c  \ CHARGEPUMP
-  $14 lcd!c  \ switched capacitor
-  $A4 lcd!c  \ DISPLAYALLON_RESUME
-  $A6 lcd!c  \ NORMALDISPLAY
-  $AF lcd!c  \ DISPLAYON
+  $fd lcd!c $12 lcd!c \ SET_COMMAND_LOCK, $12, # Unlock
+  $ae lcd!c           \ SET_DISP, # $ae Display off, $af display on
+  \ Resolution and layout
+  $a1 lcd!c $00 lcd!c \ SET_DISP_START_LINE, $00,
+  $a2 lcd!c $00 lcd!c \ SET_DISP_OFFSET, $20, # Set vertical offset by COM from 0~127 (!)changed
+  \ Set re-map
+  \ Enable column address re-map
+  \ Disable nibble re-map
+  \ Horizontal address increment 
+  \ Enable COM re-map
+  \ Enable COM split odd even
+  $a0 lcd!c $51 lcd!c \ SET_SEG_REMAP, $51,
+  $a8 lcd!c $7f lcd!c \ SET_MUX_RATIO, self.height - 1,
+  \ Timing and driving scheme
+  $ab lcd!c $01 lcd!c \ SET_FN_SELECT_A, $01, # Enable internal VDD regulator
+  $b1 lcd!c $51 lcd!c \ SET_PHASE_LEN, 0x51, # Phase 1: 1 DCLK, Phase 2: 5 DCLKs
+  $b3 lcd!c $01 lcd!c \ SET_DISP_CLK_DIV, 0x01, # Divide ratio: 1, Oscillator Frequency: 0
+  $bc lcd!c $08 lcd!c \ SET_PRECHARGE, 0x08, # Set pre-charge voltage level: VCOMH
+  $be lcd!c $07 lcd!c \ SET_VCOM_DESEL, 0x07, # Set VCOMH COM deselect voltage level: 0.86*Vcc
+  $b6 lcd!c $01 lcd!c \ SET_SECOND_PRECHARGE, 0x01, # Second Pre-charge period: 1 DCLK
+  $d5 lcd!c $62 lcd!c \ SET_FN_SELECT_B, 0x62, # Enable enternal VSL, Enable second precharge
+  \ Display
+  $b9 lcd!c           \ SET_GRAYSCALE_LINEAR, # Use linear greyscale lookup table
+  $81 lcd!c $53 lcd!c \ SET_CONTRAST, 0x7f, # Medium brightness
+  $a4 lcd!c           \ SET_DISP_MODE, # Normal, not inverted $a4, inverted $a7, all off $a6, all on $a5 
+  \ 96x96:
+  \ SET_ROW_ADDR, 0 95,
+  \ SET_COL_ADDR, 8, 55,
+  \ 128x128:
+  \ SET_ROW_ADDR, 0 127,
+  \ SET_COL_ADDR, 0, 63,
+  $75 lcd!c $00 lcd!c $7f lcd!c \ SET_ROW_ADDR, 0x00, self.height - 1, (?)
+  $15 lcd!c $00 lcd!c $7f lcd!c \ SET_COL_ADDR, ((128 - self.width) // 4), 63 - ((128 - self.width) // 4), (?)
+  $2e lcd!c           \ SET_SCROLL_DEACTIVATE,
+  $af lcd!c           \ SET_DISP | 0x01): # Display on
 ;
 
 \ lcd-init show-logo
