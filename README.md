@@ -6,7 +6,7 @@ these words are derivated from Jean-Claude Wipplers [ssd1306.fs](https://git.jee
 
 ## ssd1306
 
-I had to change init for my display
+small changes for my ssd1306, the original version from jcw didn't work.
 
 ## sh1106
 
